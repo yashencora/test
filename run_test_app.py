@@ -18,4 +18,4 @@ num = 29
 if is_prime(num):
     print(f"{num} is a prime number.")
 else:
-    print(f"{num} is not a prime number. and do the execution, for running,testing function")
+    print(f"{num} is not a prime number. and do the execution, for running,testing function 1")
