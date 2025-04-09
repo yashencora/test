@@ -1,5 +1,4 @@
 from typing import TypedDict, Literal
-
 from langgraph.graph import StateGraph, END
 from my_agent.utils.nodes import call_model, should_continue, tool_node
 from my_agent.utils.state import AgentState
@@ -17,16 +16,18 @@ workflow = StateGraph(AgentState, config_schema=GraphConfig)
 workflow.add_node("agent", call_model)
 workflow.add_node("action", tool_node)
 
-
+# Set the entrypoint as `agent`
+# This means that this node is the first one called
 
 # We now add a conditional edge
 workflow.add_conditional_edges(
-    # First, we define the start node. We use `agent`.
-    # This means these are the edges taken after the `agent` node is called.
     "agent",
     # Next, we pass in the function that will determine which node is called next.
     should_continue,
-
+    # Finally we pass in a mapping.
+    # The keys are strings, and the values are other nodes.
+    # END is a special node marking that the graph should finish.
+    # What will happen is we will call `should_continue`, and then the output of that
     # will be matched against the keys in this mapping.
     # Based on which one it matches, that node will then be called.
     {
