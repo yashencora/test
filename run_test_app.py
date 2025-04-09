@@ -15,9 +15,7 @@ def is_prime(n):
         i += 6
     return True
 
-# Example usage
 num = 29
-print("REACHED HERE")
 if is_prime(num):
     print(f"{num} is a prime number.")
 else:
