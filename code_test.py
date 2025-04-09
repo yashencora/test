@@ -22,8 +22,6 @@ workflow.set_entry_point("agent")
 
 # We now add a conditional edge
 workflow.add_conditional_edges(
-    # First, we define the start node. We use `agent`.
-    # This means these are the edges taken after the `agent` node is called.
     "agent",
     # Next, we pass in the function that will determine which node is called next.
     should_continue,
