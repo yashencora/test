@@ -10,59 +10,51 @@ from langchain_core.messages import HumanMessage, AIMessage
 from prompt_library.prompt import system_prompt
 from utils.llms import LLMModel
 from toolkit.toolkits import *
-
+ 
 class Router(TypedDict):
-    next: Literal["information_node", "booking_node", "FINISH"]
+    next: Literal["information_node", "doctor_selection_node", "booking_node", "FINISH"]
     reasoning: str
-
+ 
 class AgentState(TypedDict):
     messages: Annotated[list[Any], add_messages]
     id_number: int
     next: str
     query: str
     current_reasoning: str
-
+ 
 class DoctorAppointmentAgent:
     def __init__(self):
         llm_model = LLMModel()
-        self.llm_model=llm_model.get_model()
-    
-    def supervisor_node(self, state: AgentState) -> Command[Literal['information_node', 'booking_node', '__end__']]:
+        self.llm_model = llm_model.get_model()
+ 
+    def supervisor_node(self, state: AgentState) -> Command[Literal['information_node', 'doctor_selection_node', 'booking_node', '__end__']]:
         print("**************************below is my state right after entering****************************")
         print(state)
-        
+ 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"user's identification number is {state['id_number']}"},
         ] + state["messages"]
-        
         print("***********************this is my message*****************************************")
         print(messages)
-        
-        # query = state['messages'][-1].content if state["messages"] else ""
+ 
         query = ''
         if len(state['messages']) == 1:
             query = state['messages'][0].content
-        
         print("************below is my query********************")    
         print(query)
-        
         response = self.llm_model.with_structured_output(Router).invoke(messages)
-        
         goto = response["next"]
-        
         print("********************************this is my goto*************************")
         print(goto)
-        
         print("********************************")
         print(response["reasoning"])
-            
+ 
         if goto == "FINISH":
             goto = END
-            
         print("**************************below is my state****************************")
         print(state)
-        
+ 
         if query:
             return Command(goto=goto, update={'next': goto, 
                                             'query': query, 
@@ -72,12 +64,36 @@ class DoctorAppointmentAgent:
         return Command(goto=goto, update={'next': goto, 
                                         'current_reasoning': response["reasoning"]}
                     )
-
+ 
+    def doctor_selection_node(self, state: AgentState) -> Command[Literal['information_node', 'booking_node', '__end__']]:
+        print("*****************called doctor selection node************")
+        system_prompt = "You are a specialized agent to help users select a doctor based on their preferences such as specialization, availability, and any other factors. You have access to the tool.\n Always ensure that you ask the user if they need more details to help with the selection."
+        system_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system_prompt),
+                    ("placeholder", "{messages}"),
+                ]
+            )
+        doctor_selection_agent = create_react_agent(
+            model=self.llm_model,
+            tools=[select_doctor_based_on_specialization],  # Example tool that helps with doctor selection.
+            prompt=system_prompt
+        )
+ 
+        result = doctor_selection_agent.invoke(state)
+ 
+        return Command(
+            update={
+                "messages": state["messages"] + [
+                    AIMessage(content=result["messages"][-1].content, name="doctor_selection_node")
+                ]
+            },
+            goto="booking_node",  # After selecting a doctor, proceed to booking
+        )
+ 
     def information_node(self, state: AgentState) -> Command[Literal['supervisor']]:
         print("*****************called information node************")
-    
         system_prompt = "You are specialized agent to provide information related to availability of doctors or any FAQs related to hospital based on the query. You have access to the tool.\n Make sure to ask user politely if you need any further information to execute the tool.\n For your information, Always consider current year is 2024."
-        
         system_prompt = ChatPromptTemplate.from_messages(
                 [
                     (
@@ -90,26 +106,20 @@ class DoctorAppointmentAgent:
                     ),
                 ]
             )
-        
         information_agent = create_react_agent(model=self.llm_model,tools=[check_availability_by_doctor,check_availability_by_specialization] ,prompt=system_prompt)
-        
         result = information_agent.invoke(state)
-        
         return Command(
             update={
                 "messages": state["messages"] + [
                     AIMessage(content=result["messages"][-1].content, name="information_node")
-                    #HumanMessage(content=result["messages"][-1].content, name="information_node")
                 ]
             },
             goto="supervisor",
         )
-
+ 
     def booking_node(self, state: AgentState) -> Command[Literal['supervisor']]:
         print("*****************called booking node************")
-    
         system_prompt = "You are specialized agent to set, cancel or reschedule appointment based on the query. You have access to the tool.\n Make sure to ask user politely if you need any further information to execute the tool.\n For your information, Always consider current year is 2024."
-        
         system_prompt = ChatPromptTemplate.from_messages(
                 [
                     (
@@ -123,24 +133,26 @@ class DoctorAppointmentAgent:
                 ]
             )
         booking_agent = create_react_agent(model=self.llm_model,tools=[set_appointment,cancel_appointment,reschedule_appointment],prompt=system_prompt)
-
+ 
         result = booking_agent.invoke(state)
-        
         return Command(
             update={
                 "messages": state["messages"] + [
                     AIMessage(content=result["messages"][-1].content, name="booking_node")
-                    #HumanMessage(content=result["messages"][-1].content, name="booking_node")
                 ]
             },
             goto="supervisor",
         )
-
+ 
     def workflow(self):
         self.graph = StateGraph(AgentState)
         self.graph.add_node("supervisor", self.supervisor_node)
         self.graph.add_node("information_node", self.information_node)
         self.graph.add_node("booking_node", self.booking_node)
+        self.graph.add_node("doctor_selection_node", self.doctor_selection_node)  # Add the doctor selection node
         self.graph.add_edge(START, "supervisor")
+        self.graph.add_edge("supervisor", "doctor_selection_node")  # Transition from supervisor to doctor selection
+        self.graph.add_edge("doctor_selection_node", "booking_node")  # After selecting a doctor, go to booking
+        self.graph.add_edge("booking_node", "supervisor")  # After booking, return to supervisor
         self.app = self.graph.compile()
         return self.app
